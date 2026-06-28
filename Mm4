@@ -1,0 +1,329 @@
+local WindUI = loadstring(game:HttpGet("https://github.com/Footagesus/WindUI/releases/latest/download/main.lua"))()
+local lp = game.Players.LocalPlayer
+local rs = game:GetService("RunService")
+local ts = game:GetService("TeleportService")
+local ps = game:GetService("HttpService")
+local lighting = game:GetService("Lighting")
+local sgui = game:GetService("StarterGui")
+local uis = game:GetService("UserInputService")
+local tweens = game:GetService("TweenService")
+
+-- [ แกนตัวแปรควบคุมระบบ (System State) ]
+local State = {
+    WalkSpeed = 16,
+    JumpPower = 50,
+    InfJump = false,
+    Noclip = false,
+    AutoRespawn = false,
+    
+    EspM = false, EspS = false, EspI = false, EspG = false,
+    
+    Silent = false, AutoShoot = false, KnifeAura = false, AuraRange = 12, AutoGrab = false,
+    
+    AutoCoin = false, InstantCollect = false,
+    
+    EmoteSpam = false, EmoteType = "dab",
+    
+    RainbowBorder = false -- ตัวแปรควบคุมระบบไฟขอบ RGB
+}
+
+-- [ CUSTOM PRESTIGE NOTIFICATION ]
+local function SendPremiumNotify(title, text, duration)
+    pcall(function()
+        local notifyGui = Instance.new("ScreenGui")
+        notifyGui.Name = "NightHubNotify"
+        notifyGui.Parent = game:GetService("CoreGui")
+        
+        local frame = Instance.new("Frame")
+        frame.Size = UDim2.new(0, 310, 0, 85)
+        frame.Position = UDim2.new(1, 300, 0, 50)
+        frame.BackgroundColor3 = Color3.fromRGB(15, 15, 15)
+        frame.BorderSizePixel = 0
+        frame.Parent = notifyGui
+        
+        local round = Instance.new("UICorner") round.CornerRadius = UDim.new(0, 10) round.Parent = frame
+        local stroke = Instance.new("UIStroke") stroke.Thickness = 2.5 stroke.Color = Color3.fromRGB(0, 162, 255) stroke.Parent = frame
+        
+        local tLabel = Instance.new("TextLabel")
+        tLabel.Size = UDim2.new(1, -20, 0, 25) tLabel.Position = UDim2.new(0, 12, 0, 6) tLabel.BackgroundTransparency = 1
+        tLabel.Text = "🔱 " .. title tLabel.TextColor3 = Color3.fromRGB(255, 215, 0) tLabel.TextSize = 13 tLabel.Font = Enum.Font.GothamBold tLabel.TextXAlignment = Enum.TextXAlignment.Left tLabel.Parent = frame
+        
+        local descLabel = Instance.new("TextLabel")
+        descLabel.Size = UDim2.new(1, -20, 0, 45) descLabel.Position = UDim2.new(0, 12, 0, 32) descLabel.BackgroundTransparency = 1
+        descLabel.Text = text descLabel.TextColor3 = Color3.fromRGB(200, 200, 200) descLabel.TextSize = 11 descLabel.Font = Enum.Font.Gotham descLabel.TextWrapped = true descLabel.TextXAlignment = Enum.TextXAlignment.Left descLabel.Parent = frame
+
+        task.spawn(function()
+            local h = 0
+            while frame and frame.Parent do task.wait(0.01)
+                h = h + 0.006 if h > 1 then h = 0 end
+                stroke.Color = Color3.fromHSV(h, 1, 1)
+            end
+        end)
+        
+        frame:TweenPosition(UDim2.new(1, -330, 0, 50), "Out", "Back", 0.4, true)
+        task.wait(duration or 4)
+        frame:TweenPosition(UDim2.new(1, 300, 0, 50), "In", "Linear", 0.3, true, function() notifyGui:Destroy() end)
+    end)
+end
+
+SendPremiumNotify("night hub VIP 👑", "เพิ่มอีโมจิสร้างสรรค์ให้กับทุกฟังก์ชันแล้ว!", 5)
+
+-- [ MAIN WINDOW ]
+local Window = WindUI:CreateWindow({
+    Title = "night hub VIP 👑", 
+    Icon = "crown", 
+    Author = "by Night", 
+    Size = UDim2.fromOffset(680, 580), 
+    Theme = "Dark"
+})
+
+-- ==================== [ 1. CORE MAIN (หมวดฟังก์ชันกายภาพหลัก) ] ====================
+local T_Main = Window:Tab({Title="⚡ Core (หลัก)", Icon="zap"})
+
+T_Main:Slider({Title="🏃‍♂️ WalkSpeed (ความเร็วเดิน)", Min=16, Max=250, Default=16, Callback=function(v) State.WalkSpeed = v end})
+T_Main:Slider({Title="🦘 JumpPower (แรงกระโดด)", Min=50, Max=350, Default=50, Callback=function(v) State.JumpPower = v end})
+T_Main:Toggle({Title="🚀 Infinite Jump (กระโดดไม่จำกัด)", Callback=function(s) State.InfJump = s end})
+T_Main:Toggle({Title="👻 Noclip (เดินทะลุกำแพง)", Callback=function(s) State.Noclip = s end})
+T_Main:Toggle({Title="🔄 Auto Respawn (เกิดใหม่ทันทีเมื่อตัวละครตาย)", Callback=function(s) State.AutoRespawn = s end})
+
+-- ==================== [ 2. VISUALS ESP (หมวดตรวจสอบสภาวะและมองทะลุ) ] ====================
+local T_Vis = Window:Tab({Title="👁️ Visuals (มองทะลุ)", Icon="eye"})
+
+T_Vis:Toggle({Title="🟥 ESP Murderer (ระบุพิกัดฆาตกร)", Callback=function(s) State.EspM = s end})
+T_Vis:Toggle({Title="🟦 ESP Sheriff (ระบุพิกัดคนถือปืน)", Callback=function(s) State.EspS = s end})
+T_Vis:Toggle({Title="🟩 ESP Innocent (ระบุพิกัดคนธรรมดา)", Callback=function(s) State.EspI = s end})
+T_Vis:Toggle({Title="🟨 ESP Gun Drop (ระบุพิกัดปืนตกพื้น)", Callback=function(s) State.EspG = s end})
+T_Vis:Toggle({Title="☀️ Full Bright (เปิดโหมดตาแมวเพิ่มความสว่างแมพ)", Callback=function(s) lighting.Brightness = s and 2 or 1 lighting.Ambient = s and Color3.fromRGB(255,255,255) or Color3.fromRGB(130,130,130) end})
+
+-- ==================== [ 3. COMBAT ENGINE (หมวดจำลองวิถีและระบบต่อสู้) ] ====================
+local T_Combat = Window:Tab({Title="⚔️ Combat (ต่อสู้)", Icon="sword"})
+
+T_Combat:Toggle({Title="🎯 Silent Aim (ล็อกเป้าวิถีกระสุนแม่นยำ)", Callback=function(s) State.Silent = s end})
+T_Combat:Toggle({Title="🔫 Auto Shoot (คำนวณยิงโจมตีอัตโนมัติ)", Callback=function(s) State.AutoShoot = s end})
+T_Combat:Toggle({Title="🔪 Knife Aura (ออร่าสับมีดรอบทิศ)", Callback=function(s) State.KnifeAura = s end})
+T_Combat:Slider({Title="📏 Aura Range (ระยะการประมวลผลสับ)", Min=5, Max=30, Default=12, Callback=function(v) State.AuraRange = v end})
+T_Combat:Toggle({Title="🧲 Auto Grab Gun (วาร์ปเก็บปืนความไวสูงเมื่อตก)", Callback=function(s) State.AutoGrab = s end})
+
+-- ==================== [ 4. FARM AUTOMATION (หมวดระบบฟาร์มทดสอบเหรียญ) ] ====================
+local T_Farm = Window:Tab({Title="💰 Farm (ฟาร์มเงิน)", Icon="coins"})
+
+T_Farm:Toggle({Title="💎 Auto Coin Magnets (วนลูปดึงเหรียญรอบตัว)", Callback=function(s) State.AutoCoin = s end})
+T_Farm:Toggle({Title="⚡ Instant Collection (เร่งความเร็วการเก็บเหรียญ)", Callback=function(s) State.Instant = s end})
+T_Farm:Button({Title="🌟 Collect All Coins (ย้ายพิกัดเหรียญทั้งหมดในแมพมาหาตัว)", Callback=function()
+    pcall(function()
+        if lp.Character and lp.Character:FindFirstChild("HumanoidRootPart") then
+            for _, v in pairs(workspace:GetDescendants()) do
+                if v.Name == "Coin" or v.Name == "CoinClip" then
+                    v.CFrame = lp.Character.HumanoidRootPart.CFrame
+                end
+            end
+        end
+    end)
+end})
+
+-- ==================== [ 5. TELEPORTS AREA (หมวดระบบจัดการพิกัดเคลื่อนย้าย) ] ====================
+local T_Warp = Window:Tab({Title="🗺️ Warp (วาร์ปแมพ)", Icon="map"})
+
+T_Warp:Button({Title="🏢 Teleport to Lobby (วาร์ปไปจุดรอโหลดห้องโถง)", Callback=function()
+    pcall(function() lp.Character.HumanoidRootPart.CFrame = CFrame.new(0, 50, 0) end)
+end})
+T_Warp:Button({Title="🔫 Teleport to Gun (วาร์ปไปทับตำแหน่งที่ปืนตกพื้น)", Callback=function()
+    pcall(function()
+        for _, v in pairs(workspace:GetDescendants()) do
+            if v.Name == "GunDrop" or (v:IsA("Part") and v:FindFirstChild("Gun") and v.Parent.Name == "Temp") then
+                lp.Character.HumanoidRootPart.CFrame = v.CFrame break
+            end
+        end
+    end)
+end})
+T_Warp:Button({Title="🛒 Teleport to Shop (วาร์ปไปพิกัดพื้นที่ร้านค้า)", Callback=function()
+    pcall(function() lp.Character.HumanoidRootPart.CFrame = CFrame.new(50, 0, 0) end)
+end})
+
+-- ==================== [ 6. MISCELLANEOUS (หมวดบันเทิงและคำสั่งเซิร์ฟเวอร์) ] ====================
+local T_Misc = Window:Tab({Title="😀 Misc (บันเทิง)", Icon="smile"})
+
+T_Misc:Toggle({Title="🕺 Spam Emotes (สแปมเล่นแอนิเมชันรัวๆ)", Callback=function(s) State.EmoteSpam = s end})
+T_Misc:Dropdown({Title="🎵 เลือกท่าเต้นหลัก", Items={"dab", "dance", "zen", "ninja"}, Default="dab", Callback=function(t) State.EmoteType = t end})
+T_Misc:Button({Title="🌐 Server Hop (ค้นหาและเปลี่ยนย้ายเซิร์ฟเวอร์ใหม่)", Callback=function()
+    pcall(function() ts:Teleport(game.PlaceId, lp) end)
+end})
+
+-- ==================== [ 7. SETTINGS & CONFIGS (หมวดระบบตั้งค่าสคริปต์) ] ====================
+local T_Settings = Window:Tab({Title="⚙️ Configs (ตั้งค่า)", Icon="sliders"})
+
+T_Settings:Toggle({Title="🌈 RGB Rainbow Border (เปิดระบบแสงไฟขอบรุ้ง)", Default = false, Callback = function(s) 
+    State.RainbowBorder = s 
+end})
+
+T_Settings:Button({Title="🔴 Unload UI (ทำลายและปิดระบบสคริปต์ทั้งหมด)", Callback=function()
+    State.RainbowBorder = false
+    State.WalkSpeed = 16
+    State.JumpPower = 50
+    State.Noclip = false
+    State.EspM = false; State.EspS = false; State.EspI = false; State.EspG = false
+    State.AutoCoin = false
+    pcall(function()
+        Window:Destroy()
+        local core = game:GetService("CoreGui")
+        if core:FindFirstChild("NightHubNotify") then core.NightHubNotify:Destroy() end
+    end)
+end})
+
+-- ==================== [ BACKGROUND MAIN CORE LOOPS (ลูปทำงานเบื้องหลังระบบ) ] ====================
+
+-- ลูปอัจฉริยะคำนวณการไล่เฉดสี RGB วิ่งจับเฉพาะ "UIStroke (เส้นขอบหน้าต่าง)"
+task.spawn(function()
+    local hue = 0
+    while task.wait(0.01) do
+        if State.RainbowBorder then
+            hue = hue + 0.003
+            if hue > 1 then hue = 0 end
+            local rainbowColor = Color3.fromHSV(hue, 1, 1)
+            
+            pcall(function()
+                local coreGui = game:GetService("CoreGui")
+                for _, descendant in pairs(coreGui:GetDescendants()) do
+                    if descendant:IsA("UIStroke") and descendant.Parent and (descendant.Parent.Name:find("Window") or descendant.Parent.Name:find("Main") or descendant.Parent:IsA("Frame")) then
+                        descendant.Color = rainbowColor
+                        descendant.Thickness = 2.5 
+                    end
+                end
+            end)
+        end
+    end
+end)
+
+-- 1. ลูปการเคลื่อนที่และความเร็ว
+task.spawn(function()
+    while task.wait(0.1) do
+        pcall(function()
+            if lp.Character and lp.Character:FindFirstChildOfClass("Humanoid") then
+                local hum = lp.Character:FindFirstChildOfClass("Humanoid")
+                hum.WalkSpeed = State.WalkSpeed
+                hum.JumpPower = State.JumpPower
+            end
+        end)
+    end
+end)
+
+-- 2. ระบบดักจับการกระโดด Infinite Jump
+uis.JumpRequest:Connect(function()
+    pcall(function()
+        if State.InfJump and lp.Character and lp.Character:FindFirstChildOfClass("Humanoid") then
+            lp.Character:FindFirstChildOfClass("Humanoid"):ChangeState(Enum.HumanoidStateType.Jumping)
+        end
+    end)
+end)
+
+-- 3. ระบบทะลุกำแพง Noclip 
+rs.Stepped:Connect(function()
+    pcall(function()
+        if State.Noclip and lp.Character then
+            for _, v in pairs(lp.Character:GetDescendants()) do
+                if v:IsA("BasePart") then v.CanCollide = false end
+            end
+        end
+    end)
+end)
+
+-- 4. ระบบจำลองตรวจสอบสถานะและประมวลผล Auto Coin / Emote / Combat / Auto Grab Gun
+task.spawn(function()
+    while true do
+        pcall(function()
+            if State.AutoGrab and lp.Character and lp.Character:FindFirstChild("HumanoidRootPart") then
+                for _, v in pairs(workspace:GetDescendants()) do
+                    if v.Name == "GunDrop" or (v:IsA("Part") and v:FindFirstChild("Gun") and v.Parent.Name == "Temp") then
+                        lp.Character.HumanoidRootPart.CFrame = v.CFrame
+                        break
+                    end
+                end
+            end
+
+            if State.KnifeAura and lp.Character and lp.Character:FindFirstChild("HumanoidRootPart") then
+                local knife = lp.Character:FindFirstChild("Knife") or lp.Backpack:FindFirstChild("Knife")
+                if knife then
+                    for _, p in pairs(game.Players:GetPlayers()) do
+                        if p ~= lp and p.Character and p.Character:FindFirstChild("HumanoidRootPart") then
+                            local targetHRP = p.Character.HumanoidRootPart
+                            local distance = (targetHRP.Position - lp.Character.HumanoidRootPart.Position).Magnitude
+                            if distance <= State.AuraRange then
+                                if knife.Parent == lp.Backpack then knife.Parent = lp.Character end
+                                knife:Activate()
+                            end
+                        end
+                    end
+                end
+            end
+
+            if State.AutoCoin and lp.Character and lp.Character:FindFirstChild("HumanoidRootPart") then
+                for _, v in pairs(workspace:GetDescendants()) do
+                    if v.Name == "Coin" or v.Name == "CoinClip" then
+                        v.CFrame = lp.Character.HumanoidRootPart.CFrame
+                        if State.Instant then task.wait() else task.wait(0.1) end
+                    end
+                end
+            end
+            
+            if State.EmoteSpam and game:GetService("ReplicatedStorage"):FindFirstChild("PlayEmote") then
+                game:GetService("ReplicatedStorage").PlayEmote:FireServer(State.EmoteType)
+            end
+            
+            if State.AutoRespawn and lp.Character and lp.Character:FindFirstChildOfClass("Humanoid") then
+                if lp.Character:FindFirstChildOfClass("Humanoid").Health <= 0 then
+                    task.wait(2) lp.Character:BreakJoints()
+                end
+            end
+        end)
+        task.wait(0.3)
+    end
+end)
+
+-- 5. ลูประบบมองทะลุ (ESP Visual Filter)
+task.spawn(function()
+    while task.wait(0.5) do
+        pcall(function()
+            for _, v in pairs(game.Players:GetPlayers()) do
+                if v ~= lp and v.Character and v.Character:FindFirstChild("HumanoidRootPart") then
+                    local knife = v.Backpack:FindFirstChild("Knife") or v.Character:FindFirstChild("Knife")
+                    local gun = v.Backpack:FindFirstChild("Gun") or v.Character:FindFirstChild("Gun")
+                    
+                    local showEsp = false
+                    local espColor = Color3.fromRGB(255, 255, 255)
+                    
+                    if knife and State.EspM then
+                        showEsp = true espColor = Color3.fromRGB(255, 0, 0)
+                    elseif gun and State.EspS then
+                        showEsp = true espColor = Color3.fromRGB(0, 162, 255)
+                    elseif not knife and not gun and State.EspI then
+                        showEsp = true espColor = Color3.fromRGB(0, 255, 0)
+                    end
+                    
+                    if showEsp then
+                        local highlight = v.Character:FindFirstChild("HubHighlight") or Instance.new("Highlight")
+                        highlight.Name = "HubHighlight"
+                        highlight.Parent = v.Character
+                        highlight.FillColor = espColor
+                        highlight.FillTransparency = 0.4
+                        highlight.DepthMode = Enum.HighlightDepthMode.AlwaysOnTop
+                    else
+                        if v.Character:FindFirstChild("HubHighlight") then v.Character.HubHighlight:Destroy() end
+                    end
+                end
+            end
+            
+            if State.EspG then
+                for _, g in pairs(workspace:GetDescendants()) do
+                    if g.Name == "GunDrop" then
+                        local gh = g:FindFirstChild("GunHighlight") or Instance.new("Highlight")
+                        gh.Name = "GunHighlight"
+                        gh.Parent = g
+                        gh.FillColor = Color3.fromRGB(255, 255, 0)
+                        gh.FillTransparency = 0.3
+                        gh.DepthMode = Enum.HighlightDepthMode.AlwaysOnTop
+                    end
+                end
+            end
+        end)
+    end
+end)
