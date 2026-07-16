@@ -1,0 +1,93 @@
+-- LocalScript: วางใน StarterPlayerScripts หรือ StarterGui
+local Players = game:GetService("Players")
+local player = Players.LocalPlayer
+local clonedCharacter = nil
+
+-- === ฟังก์ชันสร้าง UI (เหมือนเดิม) ===
+local screenGui = Instance.new("ScreenGui")
+screenGui.Name = "SandboxTestUI"
+screenGui.ResetOnSpawn = false
+screenGui.Parent = player:WaitForChild("PlayerGui")
+
+local function createButton(name, text, positionY, color)
+    local button = Instance.new("TextButton")
+    button.Name = name
+    button.Size = UDim2.new(0, 180, 0, 50)
+    button.Position = UDim2.new(0, 20, 0, positionY)
+    button.BackgroundColor3 = color
+    button.Text = text
+    button.TextColor3 = Color3.fromRGB(255, 255, 255)
+    button.Font = Enum.Font.SourceSansBold
+    button.TextSize = 18
+    button.BorderSizePixel = 0
+    local uiCorner = Instance.new("UICorner")
+    uiCorner.CornerRadius = UDim.new(0, 8)
+    uiCorner.Parent = button
+    button.Parent = screenGui
+    return button
+end
+
+local cloneButton = createButton("CloneButton", "ปุ่มที่ 1: แยกร่าง (ค้างท่า)", 100, Color3.fromRGB(46, 204, 113))
+local teleportButton = createButton("TeleportButton", "ปุ่มที่ 2: วาร์ป", 160, Color3.fromRGB(231, 76, 60))
+
+-- === ฟังก์ชันปุ่มที่ 1: แยกร่างและค้างท่า (Freeze Pose) ===
+cloneButton.MouseButton1Click:Connect(function()
+    local character = player.Character
+    if not character then return end
+    
+    -- ลบร่างเก่าออก
+    if clonedCharacter then clonedCharacter:Destroy() end
+    
+    -- ตั้งค่าให้ก๊อปปี้ได้
+    character.Archivable = true
+    clonedCharacter = character:Clone()
+    character.Archivable = false
+    
+    -- --- ส่วนการทำ Frozen Pose ---
+    for _, part in ipairs(clonedCharacter:GetDescendants()) do
+        if part:IsA("BasePart") then
+            -- 1. ทำให้หยุดนิ่งกลางอากาศ ไม่ตก ไม่ล้ม
+            part.Anchored = true 
+            part.CanCollide = false
+            
+            -- 2. ปรับความโปร่งใสเล็กน้อยให้รู้ว่าเป็นร่างโคลน
+            if part.Name ~= "HumanoidRootPart" then
+                part.Transparency = 0.3
+            end
+        elseif part:IsA("Script") or part:IsA("LocalScript") or part:IsA("Animator") then
+            -- 3. ลบระบบสมองและระบบอนิเมชั่นทิ้ง เพื่อไม่ให้มันกลับมาขยับ
+            part:Destroy()
+        end
+    end
+    
+    -- เอา Humanoid ออกไปเลยก็ได้ เพราะไม่ต้องใช้แล้ว เพื่อลดภาระเครื่อง
+    local hum = clonedCharacter:FindFirstChildOfClass("Humanoid")
+    if hum then hum:Destroy() end
+    
+    clonedCharacter.Name = "Frozen_Clone"
+    clonedCharacter.Parent = workspace
+    -- --------------------------
+    
+    cloneButton.Text = "แช่แข็งท่าเรียบร้อย!"
+    task.wait(1.5)
+    cloneButton.Text = "ปุ่มที่ 1: แยกร่าง (ค้างท่า)"
+end)
+
+-- === ฟังก์ชันปุ่มที่ 2: วาร์ป ===
+teleportButton.MouseButton1Click:Connect(function()
+    local character = player.Character
+    if not character or not character:FindFirstChild("HumanoidRootPart") then return end
+    
+    if clonedCharacter and clonedCharacter:FindFirstChild("HumanoidRootPart") then
+        -- วาร์ปไปที่ตำแหน่งร่างโคลน
+        character.HumanoidRootPart.CFrame = clonedCharacter.HumanoidRootPart.CFrame
+        
+        teleportButton.Text = "วาร์ปสำเร็จ!"
+        task.wait(1.5)
+        teleportButton.Text = "ปุ่มที่ 2: วาร์ป"
+    else
+        teleportButton.Text = "ยังไม่มีร่างโคลน!"
+        task.wait(1.5)
+        teleportButton.Text = "ปุ่มที่ 2: วาร์ป"
+    end
+end)
