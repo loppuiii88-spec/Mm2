@@ -1,0 +1,194 @@
+-- ROBLOX LUAU: CLIENT-SIDE ENVIRONMENT SANDBOX TESTING
+-- SYSTEM: UNIVERSAL SCANNER & TARGETED TELEPORTER GUI
+
+local Players = game:GetService("Players")
+local RunService = game:GetService("RunService")
+local CoreGui = game:GetService("CoreGui")
+
+local player = Players.LocalPlayer
+local character = player.Character or player.CharacterAdded:Wait()
+
+-- สร้าง UI หลัก (ยึดติดกับ CoreGui หรือ PlayerGui เพื่อการทดสอบ)
+local screenGui = Instance.new("ScreenGui")
+screenGui.Name = "SandboxScannerGUI"
+-- ตรวจสอบสิทธิ์ในการรันเพื่อความปลอดภัยของการทดสอบ
+pcall(function()
+    screenGui.Parent = CoreGui
+end)
+if not screenGui.Parent then
+    screenGui.Parent = player:WaitForChild("PlayerGui")
+end
+
+-- สร้างหน้าต่างควบคุม (Main Frame) - ขนาดกำลังพอดี ไม่เล็กไม่ใหญ่เกินไป
+local mainFrame = Instance.new("Frame")
+mainFrame.Name = "MainFrame"
+mainFrame.Size = UDim2.new(0, 320, 0, 400)
+mainFrame.Position = UDim2.new(0.5, -160, 0.3, -200)
+mainFrame.BackgroundColor3 = Color3.fromRGB(30, 30, 35)
+mainFrame.BorderSizePixel = 0
+mainFrame.Active = true
+mainFrame.Draggable = true -- สามารถลากขยับไปมาบนหน้าจอได้
+mainFrame.Parent = screenGui
+
+-- ใส่โค้งมนให้ UI ดูทันสมัย
+local uiCorner = Instance.new("UICorner")
+uiCorner.CornerRadius = UDim.new(0, 10)
+uiCorner.Parent = mainFrame
+
+-- หัวข้อ UI (Title)
+local titleLabel = Instance.new("TextLabel")
+titleLabel.Size = UDim2.new(1, 0, 0, 45)
+titleLabel.BackgroundTransparency = 1
+titleLabel.Text = "🔍 UNIVERSAL SCANNER"
+titleLabel.TextColor3 = Color3.fromRGB(255, 255, 255)
+titleLabel.TextSize = 18
+titleLabel.Font = Enum.Font.SourceSansBold
+titleLabel.Parent = mainFrame
+
+-- ปุ่มสวิตช์เปิด/ปิด สแกนเนอร์ (Toggle Button)
+local toggleButton = Instance.new("TextButton")
+toggleButton.Size = UDim2.new(0.9, 0, 0, 40)
+toggleButton.Position = UDim2.new(0.05, 0, 0.12, 0)
+toggleButton.BackgroundColor3 = Color3.fromRGB(200, 50, 50)
+toggleButton.Text = "SCANNER: OFF"
+toggleButton.TextColor3 = Color3.fromRGB(255, 255, 255)
+toggleButton.TextSize = 16
+toggleButton.Font = Enum.Font.SourceSansBold
+toggleButton.Parent = mainFrame
+
+local toggleCorner = Instance.new("UICorner")
+toggleCorner.CornerRadius = UDim.new(0, 8)
+toggleCorner.Parent = toggleButton
+
+-- พื้นที่แสดงรายการไอเทมแบบ Scrollable (Scrolling Frame)
+local scrollFrame = Instance.new("ScrollingFrame")
+scrollFrame.Size = UDim2.new(0.9, 0, 0.7, 0)
+scrollFrame.Position = UDim2.new(0.05, 0, 0.25, 0)
+scrollFrame.BackgroundTransparency = 1
+scrollFrame.CanvasSize = UDim2.new(0, 0, 0, 0)
+scrollFrame.ScrollBarThickness = 6
+scrollFrame.Parent = mainFrame
+
+-- ตัวจัดการ Layout ของปุ่มไอเทม
+local uiListLayout = Instance.new("UIListLayout")
+uiListLayout.Parent = scrollFrame
+uiListLayout.SortOrder = Enum.SortOrder.LayoutOrder
+uiListLayout.Padding = UDim.new(0, 5)
+
+-- บังคับให้ CanvasSize ปรับตามจำนวนปุ่มอัตโนมัติ
+uiListLayout:GetPropertyChangedSignal("AbsoluteContentSize"):Connect(function()
+    scrollFrame.CanvasSize = UDim2.new(0, 0, 0, uiListLayout.AbsoluteContentSize.Y)
+end)
+
+-- สถานะการทำงานของระบบ
+local isScanning = false
+local scannedItems = {}
+
+-- ฟังก์ชันดึงพิกัดที่แท้จริงของไอเทม (Support ทั้ง Tool, Part และ Model)
+local function getObjectPosition(obj)
+    if obj:IsA("Tool") then
+        local handle = obj:FindFirstChild("Handle") or obj:FindFirstChildOfClass("Part") or obj:FindFirstChildOfClass("MeshPart")
+        if handle then return handle.Position end
+    elseif obj:IsA("Model") then
+        local primary = obj.PrimaryPart or obj:FindFirstChildOfClass("Part") or obj:FindFirstChildOfClass("MeshPart")
+        if primary then return primary.Position end
+    elseif obj:IsA("Part") or obj:IsA("MeshPart") then
+        return obj.Position
+    end
+    return nil
+end
+
+-- ฟังก์ชันล้างรายการเก่าใน UI
+local function clearList()
+    for _, child in ipairs(scrollFrame:GetChildren()) do
+        if child:IsA("TextButton") then
+            child:Destroy()
+        end
+    end
+    table.clear(scannedItems)
+end
+
+-- ฟังก์ชันเทเลพอร์ตตัวละคร (Client-Side Teleport)
+local function teleportTo(position)
+    local hrp = player.Character and player.Character:FindFirstChild("HumanoidRootPart")
+    if hrp and position then
+        -- ยกความสูงขึ้นเล็กน้อยเพื่อเลี่ยงการติดบั๊กใต้พื้นดิน
+        hrp.CFrame = CFrame.new(position + Vector3.new(0, 3, 0))
+    end
+end
+
+-- ฟังก์ชันสแกนหาไอเทมทั่วทั้ง Workspace
+local function scanWorkspace()
+    if not isScanning then return end
+    
+    clearList()
+    
+    -- ลูปค้นหาวัตถุที่เป็นไปได้ใน Workspace (รวมถึง Tool ที่ตกอยู่ และโมเดลที่มีคำเฉพาะเจาะจง)
+    for _, obj in ipairs(workspace:GetDescendants()) do
+        -- คัดกรองเฉพาะ Tool ที่ไม่ได้ถูกสวมใส่โดยผู้เล่นอื่น หรือวัตถุ Part/Model ที่ไม่ใช่โครงสร้างแมพ
+        local isItem = false
+        local displayName = obj.Name
+
+        if obj:IsA("Tool") and not obj:FindFirstAncestorOfClass("Model"):FindFirstChildOfClass("Humanoid") then
+            isItem = true
+        elseif obj:IsA("Model") and (obj:FindFirstChild("Handle") or obj.Name:lower():find("gun") or obj.Name:lower():find("item") or obj.Name:lower():find("weapon")) then
+            isItem = true
+        end
+
+        if isItem then
+            local pos = getObjectPosition(obj)
+            if pos then
+                table.insert(scannedItems, {Object = obj, Position = pos})
+                
+                -- สร้างปุ่มแสดงผลบน UI สำหรับไอเทมแต่ละชิ้น
+                local itemButton = Instance.new("TextButton")
+                itemButton.Size = UDim2.new(1, -10, 0, 35)
+                itemButton.BackgroundColor3 = Color3.fromRGB(45, 45, 50)
+                itemButton.Text = "  📍 " .. displayName
+                itemButton.TextColor3 = Color3.fromRGB(240, 240, 240)
+                itemButton.TextSize = 14
+                itemButton.TextXAlignment = Enum.TextXAlignment.Left
+                itemButton.Font = Enum.Font.SourceSans
+                itemButton.Parent = scrollFrame
+                
+                local btnCorner = Instance.new("UICorner")
+                btnCorner.CornerRadius = UDim.new(0, 6)
+                btnCorner.Parent = itemButton
+                
+                -- เมื่อคลิกชื่อไอเทม -> ทำการวาร์ปทันที
+                itemButton.MouseButton1Click:Connect(function()
+                    teleportTo(pos)
+                end)
+            end
+        end
+    end
+end
+
+-- การทำงานของสวิตช์เปิด/ปิด (Toggle Logic)
+toggleButton.MouseButton1Click:Connect(function()
+    isScanning = not isScanning
+    if isScanning then
+        toggleButton.Text = "SCANNER: ACTIVE"
+        toggleButton.BackgroundColor3 = Color3.fromRGB(50, 180, 50)
+        scanWorkspace()
+    else
+        toggleButton.Text = "SCANNER: OFF"
+        toggleButton.BackgroundColor3 = Color3.fromRGB(200, 50, 50)
+        clearList()
+    end
+end)
+
+-- ตรวจสอบการอัปเดตตัวละครเมื่อเกิดใหม่
+player.CharacterAdded:Connect(function(newChar)
+    character = newChar
+end)
+
+-- อัปเดตรายการสแกนอัตโนมัติทุกๆ 3 วินาทีเมื่อเปิดใช้งาน
+task.spawn(function()
+    while true do
+        task.wait(3)
+        if isScanning then
+            scanWorkspace()
+        end
+    end
+end)
