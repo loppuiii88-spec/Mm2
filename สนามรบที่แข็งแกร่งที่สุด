@@ -1,0 +1,325 @@
+-- Roblox Luau: Master Sandbox Script (Horizontal Lay Down + Standalone X-Ray & Skill 4)
+local Players = game:GetService("Players")
+local RunService = game:GetService("RunService")
+local LocalPlayer = Players.LocalPlayer
+local Workspace = game:GetService("Workspace")
+
+-- ==========================================================
+-- 1. ตัวแปรส่วนกลางสำหรับควบคุมสถานะ (Global State)
+-- ==========================================================
+local selectedTargetPlayer = nil
+local isUnderground = false
+local isStickyFollowing = false
+local isXrayActive = false
+local undergroundOffset = 6.3
+local undergroundConnection = nil
+local followConnection = nil
+local uiVisible = true
+
+-- ==========================================================
+-- 2. การสร้าง UI หลัก (Master ScreenGui)
+-- ==========================================================
+local ScreenGui = Instance.new("ScreenGui")
+ScreenGui.Name = "SandboxMasterUI"
+ScreenGui.ResetOnSpawn = false
+ScreenGui.Parent = LocalPlayer:WaitForChild("PlayerGui")
+
+-------------------------------------------------------------
+-- [2.1] ปุ่มลอยสำหรับ เปิด-ปิด UI ทั้งหมด (Hide/Show UI)
+-------------------------------------------------------------
+local MainToggleBtn = Instance.new("TextButton")
+MainToggleBtn.Name = "MainToggleBtn"
+MainToggleBtn.Size = UDim2.new(0, 100, 0, 35)
+MainToggleBtn.Position = UDim2.new(0.05, 0, 0.15, 0)
+MainToggleBtn.BackgroundColor3 = Color3.fromRGB(50, 50, 60)
+MainToggleBtn.Text = "👁️ Hide/Show UI"
+MainToggleBtn.TextColor3 = Color3.fromRGB(255, 255, 255)
+MainToggleBtn.TextSize = 13
+MainToggleBtn.Font = Enum.Font.SourceSansBold
+MainToggleBtn.Active = true
+MainToggleBtn.Draggable = true
+MainToggleBtn.Parent = ScreenGui
+Instance.new("UICorner", MainToggleBtn).CornerRadius = UDim.new(0, 6)
+
+-------------------------------------------------------------
+-- [2.2] หน้าต่างหลัก: UI สแกนเนอร์รายชื่อ (Scanner Frame)
+-------------------------------------------------------------
+local MainFrame = Instance.new("Frame")
+MainFrame.Name = "MainFrame"
+MainFrame.Size = UDim2.new(0, 240, 0, 280)
+MainFrame.Position = UDim2.new(0.05, 0, 0.23, 0)
+MainFrame.BackgroundColor3 = Color3.fromRGB(30, 30, 35)
+MainFrame.Active = true
+MainFrame.Draggable = true
+MainFrame.Parent = ScreenGui
+Instance.new("UICorner", MainFrame).CornerRadius = UDim.new(0, 8)
+
+local Title = Instance.new("TextLabel")
+Title.Size = UDim2.new(1, 0, 0, 35)
+Title.BackgroundTransparency = 1
+Title.Text = "👤 PLAYER SCANNER"
+Title.TextColor3 = Color3.fromRGB(255, 255, 255)
+Title.TextSize = 14
+Title.Font = Enum.Font.SourceSansBold
+Title.Parent = MainFrame
+
+local PlayerListFrame = Instance.new("ScrollingFrame")
+PlayerListFrame.Size = UDim2.new(0.9, 0, 0.8, 0)
+PlayerListFrame.Position = UDim2.new(0.05, 0, 0.15, 0)
+PlayerListFrame.BackgroundTransparency = 1
+PlayerListFrame.CanvasSize = UDim2.new(0, 0, 0, 0)
+PlayerListFrame.ScrollBarThickness = 4
+PlayerListFrame.Parent = MainFrame
+
+local UIListLayout = Instance.new("UIListLayout")
+UIListLayout.Padding = UDim.new(0, 5)
+UIListLayout.SortOrder = Enum.SortOrder.LayoutOrder
+UIListLayout.Parent = PlayerListFrame
+
+-------------------------------------------------------------
+-- [2.3] ปุ่มแยกอันที่ 1: หน้าต่างสกิล 4 ซามูไรเหล็ก (Sticky Front Follow)
+-------------------------------------------------------------
+local SkillFrame = Instance.new("Frame")
+SkillFrame.Name = "SkillFrame"
+SkillFrame.Size = UDim2.new(0, 220, 0, 60)
+SkillFrame.Position = UDim2.new(0.75, 0, 0.35, 0) -- ลอยฝั่งขวาบน
+SkillFrame.BackgroundColor3 = Color3.fromRGB(20, 20, 25)
+SkillFrame.Active = true
+SkillFrame.Draggable = true
+SkillFrame.Parent = ScreenGui
+Instance.new("UICorner", SkillFrame).CornerRadius = UDim.new(0, 6)
+
+local Skill4Btn = Instance.new("TextButton")
+Skill4Btn.Name = "Skill4WarpButton"
+Skill4Btn.Size = UDim2.new(0.9, 0, 0.8, 0)
+Skill4Btn.Position = UDim2.new(0.05, 0, 0.1, 0)
+Skill4Btn.BackgroundColor3 = Color3.fromRGB(190, 40, 40)
+Skill4Btn.Text = "ใช้กับสกิล 4 ของซามูไรเหล็ก"
+Skill4Btn.TextColor3 = Color3.fromRGB(255, 255, 255)
+Skill4Btn.TextSize = 14
+Skill4Btn.Font = Enum.Font.SourceSansBold
+Skill4Btn.Parent = SkillFrame
+Instance.new("UICorner", Skill4Btn).CornerRadius = UDim.new(0, 4)
+
+-------------------------------------------------------------
+-- [2.4] ปุ่มแยกอันที่ 2: หน้าต่างคำสั่ง X-RAY มองทะลุวิญญาณ (Standalone X-Ray)
+-------------------------------------------------------------
+local XrayFrame = Instance.new("Frame")
+XrayFrame.Name = "XrayFrame"
+XrayFrame.Size = UDim2.new(0, 220, 0, 60)
+XrayFrame.Position = UDim2.new(0.75, 0, 0.47, 0) -- ลอยถัดลงมาจากปุ่มสกิล 4
+XrayFrame.BackgroundColor3 = Color3.fromRGB(20, 20, 25)
+XrayFrame.Active = true
+XrayFrame.Draggable = true
+XrayFrame.Parent = ScreenGui
+Instance.new("UICorner", XrayFrame).CornerRadius = UDim.new(0, 6)
+
+local XrayBtn = Instance.new("TextButton")
+XrayBtn.Name = "XrayButton"
+XrayBtn.Size = UDim2.new(0.9, 0, 0.8, 0)
+XrayBtn.Position = UDim2.new(0.05, 0, 0.1, 0)
+XrayBtn.BackgroundColor3 = Color3.fromRGB(80, 40, 120) -- สีม่วง X-Ray
+XrayBtn.Text = "💀 เปิดใช้งาน X-RAY: OFF"
+XrayBtn.TextColor3 = Color3.fromRGB(255, 255, 255)
+XrayBtn.TextSize = 14
+XrayBtn.Font = Enum.Font.SourceSansBold
+XrayBtn.Parent = XrayFrame
+Instance.new("UICorner", XrayBtn).CornerRadius = UDim.new(0, 4)
+
+
+-- ==========================================================
+-- 3. ฟังก์ชันการทำงานหลัก (Core Functions)
+-- ==========================================================
+
+-- ฟังก์ชันปรับร่างให้ "นอนราบแนวนอน" ใต้เท้าศัตรู
+local function lockUndergroundHorizontal()
+    local myChar = LocalPlayer.Character
+    if not myChar or not myChar:FindFirstChild("HumanoidRootPart") then return end
+    
+    if isUnderground and selectedTargetPlayer and selectedTargetPlayer.Character then
+        local targetRoot = selectedTargetPlayer.Character:FindFirstChild("HumanoidRootPart")
+        if targetRoot then
+            local targetPos = targetRoot.Position
+            
+            -- ดึง CFrame การหันหน้าปกติของศัตรู
+            local targetRotation = targetRoot.CFrame - targetRoot.CFrame.Position
+            
+            -- คำนวณตำแหน่งจมดินลึก 6.3 studs 
+            local newPos = Vector3.new(targetPos.X, targetPos.Y - undergroundOffset, targetPos.Z)
+            
+            -- หมุนตัวเราในแกน X เป็น 90 องศา (math.rad(90)) เพื่อให้โมเดลนอนราบลงไปกับพื้นโลก (แนวนอน)
+            local pitchRotation = CFrame.Angles(math.rad(90), 0, 0)
+            
+            -- ประกอบตำแหน่ง + การหันหน้าตามศัตรู + ท่านอนราบ
+            myChar.HumanoidRootPart.CFrame = CFrame.new(newPos) * targetRotation * pitchRotation
+            myChar.HumanoidRootPart.Velocity = Vector3.new(0, 0, 0)
+        end
+    end
+end
+
+-- ฟังก์ชันล็อกตำแหน่งติดหนึบหน้าศัตรู (สกิล 4)
+local function lockFrontFollow()
+    local myChar = LocalPlayer.Character
+    if not myChar or not myChar:FindFirstChild("HumanoidRootPart") then return end
+    
+    if isStickyFollowing and selectedTargetPlayer and selectedTargetPlayer.Character then
+        local targetRoot = selectedTargetPlayer.Character:FindFirstChild("HumanoidRootPart")
+        if targetRoot then
+            myChar.HumanoidRootPart.CFrame = targetRoot.CFrame * CFrame.new(0, 0, -4.5)
+            myChar.HumanoidRootPart.Velocity = Vector3.new(0, 0, 0)
+        end
+    end
+end
+
+-- ฟังก์ชันจัดการปรับเปลี่ยนความโปร่งแสงของวัตถุ (X-Ray Control)
+local function applyXrayOpacity(part)
+    if part:IsA("BasePart") and not part:IsDescendantOf(LocalPlayer.Character) then
+        if part.Name ~= "HumanoidRootPart" then
+            if isXrayActive then
+                part.LocalTransparencyModifier = 0.6 -- โปร่งแสง 60% มองทะลุเหมือนวิญญาณ
+            else
+                part.LocalTransparencyModifier = 0 -- กลับมาทึบปกติ
+            end
+        end
+    end
+end
+
+-- รีเฟรช X-Ray ทั้งแผนที่
+local function refreshMapXray()
+    for _, obj in pairs(Workspace:GetDescendants()) do
+        applyXrayOpacity(obj)
+    end
+end
+
+-- อัปเดตรายชื่อในเมนูสแกนเนอร์
+local function updatePlayerList()
+    for _, child in ipairs(PlayerListFrame:GetChildren()) do
+        if child:IsA("TextButton") then child:Destroy() end
+    end
+    
+    for _, player in ipairs(Players:GetPlayers()) do
+        if player ~= LocalPlayer then
+            local pBtn = Instance.new("TextButton")
+            pBtn.Size = UDim2.new(1, 0, 0, 35)
+            
+            if selectedTargetPlayer == player and isUnderground then
+                pBtn.BackgroundColor3 = Color3.fromRGB(50, 180, 50)
+                pBtn.Text = "🔒 [มุดนอน] " .. player.Name
+            else
+                pBtn.BackgroundColor3 = Color3.fromRGB(45, 45, 50)
+                pBtn.Text = "👤 " .. player.Name
+            end
+            
+            pBtn.TextColor3 = Color3.fromRGB(255, 255, 255)
+            pBtn.TextSize = 14
+            pBtn.Font = Enum.Font.SourceSansSemibold
+            pBtn.Parent = PlayerListFrame
+            Instance.new("UICorner", pBtn).CornerRadius = UDim.new(0, 4)
+            
+            pBtn.MouseButton1Click:Connect(function()
+                if isStickyFollowing then
+                    isStickyFollowing = false
+                    if followConnection then followConnection:Disconnect() end
+                    Skill4Btn.BackgroundColor3 = Color3.fromRGB(190, 40, 40)
+                    Skill4Btn.Text = "ใช้กับสกิล 4 ของซามูไรเหล็ก"
+                end
+
+                if selectedTargetPlayer == player and isUnderground then
+                    isUnderground = false
+                    selectedTargetPlayer = nil
+                    if undergroundConnection then undergroundConnection:Disconnect() end
+                else
+                    selectedTargetPlayer = player
+                    isUnderground = true
+                    if undergroundConnection then undergroundConnection:Disconnect() end
+                    undergroundConnection = RunService.Heartbeat:Connect(lockUndergroundHorizontal)
+                end
+                updatePlayerList()
+            end)
+        end
+    end
+    PlayerListFrame.CanvasSize = UDim2.new(0, 0, 0, UIListLayout.AbsoluteContentSize.Y)
+end
+
+-- ==========================================================
+-- 4. การเชื่อมต่อเหตุการณ์ (Event Connections)
+-- ==========================================================
+
+-- ปุ่มแยกสกิล 4
+Skill4Btn.MouseButton1Click:Connect(function()
+    local myChar = LocalPlayer.Character
+    if not myChar or not myChar:FindFirstChild("HumanoidRootPart") then return end
+
+    if isStickyFollowing then
+        isStickyFollowing = false
+        if followConnection then followConnection:Disconnect() end
+        Skill4Btn.BackgroundColor3 = Color3.fromRGB(190, 40, 40)
+        Skill4Btn.Text = "ใช้กับสกิล 4 ของซามูไรเหล็ก"
+        return
+    end
+
+    if selectedTargetPlayer and selectedTargetPlayer.Character then
+        if isUnderground then
+            isUnderground = false
+            if undergroundConnection then undergroundConnection:Disconnect() end
+            updatePlayerList()
+        end
+        
+        task.wait(0.02)
+        isStickyFollowing = true
+        Skill4Btn.BackgroundColor3 = Color3.fromRGB(200, 150, 0)
+        Skill4Btn.Text = "🔒 ล็อกติดหนึบศัตรู (ON)"
+        followConnection = RunService.Heartbeat:Connect(lockFrontFollow)
+    else
+        local originalText = Skill4Btn.Text
+        Skill4Btn.Text = "❌ โปรดเลือกเป้าหมายก่อน!"
+        task.wait(1.5)
+        Skill4Btn.Text = originalText
+    end
+end)
+
+-- ปุ่มแยก X-RAY (มองทะลุวิญญาณ)
+XrayBtn.MouseButton1Click:Connect(function()
+    isXrayActive = not isXrayActive
+    
+    if isXrayActive then
+        XrayBtn.BackgroundColor3 = Color3.fromRGB(50, 150, 50) -- สีเขียว (เปิด)
+        XrayBtn.Text = "👁️ เปิดใช้งาน X-RAY: ON"
+    else
+        XrayBtn.BackgroundColor3 = Color3.fromRGB(80, 40, 120) -- สีม่วง (ปิด)
+        XrayBtn.Text = "💀 เปิดใช้งาน X-RAY: OFF"
+    end
+    
+    refreshMapXray()
+end)
+
+-- ลูปสแกนวัตถุใหม่ที่โหลดเข้าแมพย้อนหลัง (ถ้าเปิด X-Ray ค้างไว้)
+Workspace.DescendantAdded:Connect(function(obj)
+    if isXrayActive then
+        applyXrayOpacity(obj)
+    end
+end)
+
+-- ปุ่มเปิด/ปิด UI ทั้งหมด
+MainToggleBtn.MouseButton1Click:Connect(function()
+    uiVisible = not uiVisible
+    MainFrame.Visible = uiVisible
+    SkillFrame.Visible = uiVisible
+    XrayFrame.Visible = uiVisible
+    MainToggleBtn.BackgroundColor3 = uiVisible and Color3.fromRGB(50, 50, 60) or Color3.fromRGB(100, 40, 40)
+end)
+
+-- ระบบจัดการรายชื่อเมื่อผู้เล่น เข้า-ออก
+Players.PlayerAdded:Connect(updatePlayerList)
+Players.PlayerRemoving:Connect(function(player)
+    if selectedTargetPlayer == player then
+        isUnderground = false
+        isStickyFollowing = false
+        if undergroundConnection then undergroundConnection:Disconnect() end
+        if followConnection then followConnection:Disconnect() end
+    end
+    updatePlayerList()
+end)
+
+-- เรียกใช้งานสแกนรายชื่อรอบแรก
+updatePlayerList()
