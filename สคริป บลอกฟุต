@@ -1,0 +1,499 @@
+local success, Rayfield = pcall(function()
+    return loadstring(game:HttpGet('https://sirius.menu/rayfield'))()
+end)
+
+if not success or not Rayfield then
+    warn("[Rayfield Error] ไม่สามารถโหลด UI Library ได้")
+    return
+end
+
+local Window = Rayfield:CreateWindow({
+   Name = "Blox Fruits | Pro Mod Menu",
+   LoadingTitle = "กำลังโหลดระบบเสริม...",
+   LoadingSubtitle = "Client-Side Environment",
+   ConfigurationSaving = { Enabled = false },
+   KeySystem = false
+})
+
+local MainTab = Window:CreateTab("Main", 4483362458)
+local ItemTab = Window:CreateTab("หมวดหมู่หาของ", 6023426915)
+local FPSTab = Window:CreateTab("หมวดหมู่ FPS (ลดแลค)", 6023426915)
+
+local Players = game:GetService("Players")
+local Workspace = game:GetService("Workspace")
+local Lighting = game:GetService("Lighting")
+local RunService = game:GetService("RunService")
+local LocalPlayer = Players.LocalPlayer
+
+local isAutoFarmEnabled = false
+local isNoclipEnabled = false
+local isXRayEnabled = false
+local isFullBrightEnabled = false
+local isESPEnabled = false
+
+local originalTransparency = {}
+local autoFarmToggleRef = nil
+local itemDropdownRef = nil
+local allItemNames = {}
+local espHighlights = {}
+local espBillboards = {}
+
+-- บันทึกค่าแสงเดิมไว้ตอนปิดสวิตช์
+local originalLighting = {
+    Brightness = Lighting.Brightness,
+    ClockTime = Lighting.ClockTime,
+    FogEnd = Lighting.FogEnd,
+    GlobalShadows = Lighting.GlobalShadows,
+    OutdoorAmbient = Lighting.OutdoorAmbient
+}
+
+-- ฟังก์ชันสแกนหา NPC ศัตรูที่ใกล้ที่สุด
+local function getNearestNPC()
+	local character = LocalPlayer.Character
+	if not character or not character:FindFirstChild("HumanoidRootPart") then return nil end
+	
+	local hrp = character.HumanoidRootPart
+	local nearestNPC = nil
+	local shortestDistance = math.huge
+	
+	local enemiesFolder = Workspace:FindFirstChild("Enemies") or Workspace
+	
+	for _, v in ipairs(enemiesFolder:GetChildren()) do
+		if v:IsA("Model") and v ~= character then
+			local humanoid = v:FindFirstChildOfClass("Humanoid")
+			local rootPart = v:FindFirstChild("HumanoidRootPart") or v:FindFirstChild("Head")
+			
+			if humanoid and rootPart and humanoid.Health > 0 then
+				local isPlayer = Players:GetPlayerFromCharacter(v)
+				if not isPlayer then
+					local distance = (hrp.Position - rootPart.Position).Magnitude
+					if distance < shortestDistance then
+						shortestDistance = distance
+						nearestNPC = v
+					end
+				end
+			end
+		end
+	end
+	
+	return nearestNPC
+end
+
+-- ==========================================
+-- แท็บ MAIN
+-- ==========================================
+
+autoFarmToggleRef = MainTab:CreateToggle({
+   Name = "Auto Farm NPC (นอนราบใต้เท้า -6.5)",
+   CurrentValue = false,
+   Flag = "AutoFarmToggle",
+   Callback = function(Value)
+      isAutoFarmEnabled = Value
+      Rayfield:Notify({ Title = "Auto Farm", Content = Value and "เปิด Auto Farm แล้ว" or "ปิด Auto Farm แล้ว", Duration = 2 })
+   end,
+})
+
+MainTab:CreateToggle({
+   Name = "Noclip (เดินทะลุกำแพง)",
+   CurrentValue = false,
+   Flag = "NoclipToggle",
+   Callback = function(Value)
+      isNoclipEnabled = Value
+      Rayfield:Notify({ Title = "Noclip", Content = Value and "เปิด Noclip แล้ว" or "ปิด Noclip แล้ว", Duration = 2 })
+   end,
+})
+
+-- Full Bright แบบล็อกค่าแสงตลอดเวลา
+MainTab:CreateToggle({
+   Name = "Full Bright (แมพสว่างเหมือนตอนเช้า)",
+   CurrentValue = false,
+   Flag = "FullBrightToggle",
+   Callback = function(Value)
+      isFullBrightEnabled = Value
+      if not Value then
+         Lighting.Brightness = originalLighting.Brightness
+         Lighting.ClockTime = originalLighting.ClockTime
+         Lighting.FogEnd = originalLighting.FogEnd
+         Lighting.GlobalShadows = originalLighting.GlobalShadows
+         Lighting.OutdoorAmbient = originalLighting.OutdoorAmbient
+      end
+      Rayfield:Notify({ Title = "Full Bright", Content = Value and "เปิดโหมดแมปสว่างแล้ว" or "ปิดโหมดแมปสว่างแล้ว", Duration = 2 })
+   end,
+})
+
+-- ฟังก์ชันมองหา NPC ศัตรู + แสดงชื่อและเลือดบนหัว
+MainTab:CreateToggle({
+   Name = "มองหา NPC + แสดงชื่อและเลือด (ESP + HP)",
+   CurrentValue = false,
+   Flag = "ESPEnemyToggle",
+   Callback = function(Value)
+      isESPEnabled = Value
+      if not Value then
+         for _, hl in pairs(espHighlights) do if hl then hl:Destroy() end end
+         for _, bb in pairs(espBillboards) do if bb then bb:Destroy() end end
+         espHighlights = {}
+         espBillboards = {}
+      end
+      Rayfield:Notify({ Title = "ESP NPC", Content = Value and "เปิดมองหา NPC พร้อมชื่อและเลือดแล้ว" or "ปิดระบบแล้ว", Duration = 2 })
+   end,
+})
+
+MainTab:CreateButton({
+   Name = "ปลดบัคจมดิน / วาร์ปขึ้นพื้นดิน",
+   Callback = function()
+      isAutoFarmEnabled = false
+      pcall(function() autoFarmToggleRef:Set(false) end)
+
+      local character = LocalPlayer.Character
+      if character and character:FindFirstChild("HumanoidRootPart") then
+         local hrp = character.HumanoidRootPart
+         local humanoid = character:FindFirstChildOfClass("Humanoid")
+         
+         if humanoid then
+            humanoid.PlatformStand = false
+            humanoid.Sit = false
+         end
+         
+         for _, part in ipairs(character:GetDescendants()) do
+            if part:IsA("BasePart") then part.CanCollide = true end
+         end
+         
+         hrp.AssemblyLinearVelocity = Vector3.new(0, 0, 0)
+         hrp.AssemblyAngularVelocity = Vector3.new(0, 0, 0)
+         hrp.CFrame = hrp.CFrame + Vector3.new(0, 15, 0)
+         
+         Rayfield:Notify({ Title = "Unbug", Content = "วาร์ปกลับขึ้นมาบนพื้นดินแล้ว", Duration = 2 })
+      end
+   end,
+})
+
+MainTab:CreateToggle({
+   Name = "X-Ray (มองทะลุกำแพง)",
+   CurrentValue = false,
+   Flag = "XRayToggle",
+   Callback = function(Value)
+      isXRayEnabled = Value
+      for _, obj in ipairs(Workspace:GetDescendants()) do
+         if obj:IsA("BasePart") and not obj:IsDescendantOf(LocalPlayer.Character or workspace) then
+            if not obj.Parent:FindFirstChildOfClass("Humanoid") then
+               if isXRayEnabled then
+                  if originalTransparency[obj] == nil then originalTransparency[obj] = obj.Transparency end
+                  obj.Transparency = 0.65
+               else
+                  if originalTransparency[obj] ~= nil then obj.Transparency = originalTransparency[obj] end
+               end
+            end
+         end
+      end
+      Rayfield:Notify({ Title = "X-Ray", Content = Value and "เปิด X-Ray แล้ว" or "ปิด X-Ray แล้ว", Duration = 2 })
+   end,
+})
+
+-- ==========================================
+-- แท็บหมวดหมู่หาของ
+-- ==========================================
+
+ItemTab:CreateLabel("ระบบสแกนไอเท็มในตัว (เลือกเลื่อนดูและกดหยิบได้ทันที)")
+
+local function fetchItems()
+   local list = {}
+   local checked = {}
+   local backpack = LocalPlayer:FindFirstChildOfClass("Backpack")
+   local character = LocalPlayer.Character
+
+   if backpack then
+      for _, item in ipairs(backpack:GetChildren()) do
+         if item:IsA("Tool") and not checked[item.Name] then
+            checked[item.Name] = true
+            table.insert(list, item.Name)
+         end
+      end
+   end
+
+   if character then
+      for _, item in ipairs(character:GetChildren()) do
+         if item:IsA("Tool") and not checked[item.Name] then
+            checked[item.Name] = true
+            table.insert(list, item.Name)
+         end
+      end
+   end
+
+   if #list == 0 then
+      return {"(ไม่พบไอเท็มในกระเป๋า)"}
+   end
+   return list
+end
+
+allItemNames = fetchItems()
+
+local function equipToolByName(targetName)
+   if not targetName or targetName == "(ไม่พบไอเท็มในกระเป๋า)" then return end
+   
+   local character = LocalPlayer.Character
+   local humanoid = character and character:FindFirstChildOfClass("Humanoid")
+   local backpack = LocalPlayer:FindFirstChildOfClass("Backpack")
+   
+   if not character or not humanoid or not backpack then return end
+   
+   local targetTool = nil
+   for _, item in ipairs(backpack:GetChildren()) do
+      if item:IsA("Tool") and item.Name == targetName then
+         targetTool = item
+         break
+      end
+   end
+   
+   if targetTool then
+      humanoid:EquipTool(targetTool)
+      Rayfield:Notify({ Title = "หยิบสำเร็จ", Content = "หยิบไอเท็ม: " .. targetName .. " แล้ว!", Duration = 2 })
+   else
+      Rayfield:Notify({ Title = "แจ้งเตือน", Content = "ไอเท็มนี้อาจจะถืออยู่แล้ว", Duration = 2 })
+   end
+end
+
+itemDropdownRef = ItemTab:CreateDropdown({
+   Name = "เลื่อนเลือกไอเท็ม / ดาบ / ผลไม้ในตัว",
+   Options = allItemNames,
+   CurrentOption = allItemNames[1] or "(ไม่พบไอเท็มในกระเป๋า)",
+   Flag = "InventoryDropdown",
+   Callback = function(Option)
+      local selected = type(Option) == "table" and Option[1] or Option
+      equipToolByName(selected)
+   end,
+})
+
+ItemTab:CreateButton({
+   Name = "กดรีเฟรช / สแกนรายการไอเท็มใหม่",
+   Callback = function()
+      allItemNames = fetchItems()
+      itemDropdownRef:Refresh(allItemNames, true)
+      Rayfield:Notify({ Title = "รีเฟรชสำเร็จ", Content = "อัปเดตรายการไอเท็มในตัวเรียบร้อย", Duration = 2 })
+   end,
+})
+
+ItemTab:CreateLabel("--------------------------------------------------")
+ItemTab:CreateLabel("ระบบพิมพ์ค้นหาชื่อไอเท็มแบบเจาะจง (พิมพ์แล้วกด Enter)")
+
+ItemTab:CreateInput({
+   Name = "พิมพ์ชื่อไอเท็ม (เช่น ดาบ, ผล, หมัด)",
+   PlaceholderText = "พิมพ์ชื่อแล้วกด Enter",
+   CharacterLimit = 256,
+   OnEnter = true,
+   Flag = "SearchItemInput",
+   Callback = function(Text)
+      local keyword = string.lower(Text)
+      local foundMatch = nil
+      
+      local backpack = LocalPlayer:FindFirstChildOfClass("Backpack")
+      local character = LocalPlayer.Character
+      
+      if backpack then
+         for _, item in ipairs(backpack:GetChildren()) do
+            if item:IsA("Tool") and string.find(string.lower(item.Name), keyword) then
+               foundMatch = item.Name
+               break
+            end
+         end
+      end
+      
+      if not foundMatch and character then
+         for _, item in ipairs(character:GetChildren()) do
+            if item:IsA("Tool") and string.find(string.lower(item.Name), keyword) then
+               foundMatch = item.Name
+               break
+            end
+         end
+      end
+      
+      if foundMatch then
+         equipToolByName(foundMatch)
+      else
+         Rayfield:Notify({ Title = "ไม่พบ", Content = "ไม่พบไอเท็มที่มีคำว่า: " .. Text, Duration = 2 })
+      end
+   end,
+})
+
+-- ==========================================
+-- แท็บหมวดหมู่ FPS (ลดแลค / เพิ่ม FPS)
+-- ==========================================
+
+FPSTab:CreateLabel("ระบบช่วยลดอาการแลคและเพิ่มความลื่นไหลให้เกม")
+
+FPSTab:CreateButton({
+   Name = "เปิดโหมดลดแลคขั้นสุด (FPS Boost)",
+   Callback = function()
+      pcall(function()
+         Lighting.GlobalShadows = false
+         Lighting.FogEnd = 999999
+         for _, v in ipairs(Lighting:GetChildren()) do
+            if v:IsA("PostEffect") then v.Enabled = false end
+         end
+         
+         for _, obj in ipairs(Workspace:GetDescendants()) do
+            if obj:IsA("BasePart") then
+               obj.Material = Enum.Material.SmoothPlastic
+               obj.Reflectance = 0
+            elseif obj:IsA("ParticleEmitter") or obj:IsA("Trail") or obj:IsA("Fire") or obj:IsA("Smoke") or obj:IsA("Sparkles") then
+               obj.Enabled = false
+            end
+         end
+      end)
+      Rayfield:Notify({ Title = "FPS Boost", Content = "เปิดโหมดลดแลคสำเร็จ เกมจะลื่นขึ้นมาก!", Duration = 3 })
+   end,
+})
+
+FPSTab:CreateButton({
+   Name = "ลบเอฟเฟกต์สกิลและละอองฝน (Clear Lag)",
+   Callback = function()
+      pcall(function()
+         for _, v in ipairs(Workspace:GetDescendants()) do
+            if v.Name == "FX" or v.Name == "Effects" or v.Name == "Particle" then
+               v:Destroy()
+            end
+         end
+      end)
+      Rayfield:Notify({ Title = "Clear Lag", Content = "เคลียร์เอฟเฟกต์ขยะเรียบร้อย", Duration = 2 })
+   end,
+})
+
+-- ==========================================
+-- ลูปการทำงานหลัก (Auto Farm, Noclip, Full Bright & ESP + HP)
+-- ==========================================
+RunService.Stepped:Connect(function()
+	pcall(function()
+		-- ระบบ Full Bright
+		if isFullBrightEnabled then
+			Lighting.Brightness = 2
+			Lighting.ClockTime = 12
+			Lighting.FogEnd = 100000
+			Lighting.GlobalShadows = false
+			Lighting.OutdoorAmbient = Color3.fromRGB(255, 255, 255)
+		end
+		
+		-- ระบบมองหา NPC ศัตรู + แสดงชื่อและเลือด
+		if isESPEnabled then
+			local enemiesFolder = Workspace:FindFirstChild("Enemies") or Workspace
+			local activeNPCs = {}
+			
+			for _, v in ipairs(enemiesFolder:GetChildren()) do
+				if v:IsA("Model") and v ~= LocalPlayer.Character then
+					local humanoid = v:FindFirstChildOfClass("Humanoid")
+					local head = v:FindFirstChild("Head") or v:FindFirstChild("HumanoidRootPart")
+					
+					if humanoid and head and humanoid.Health > 0 then
+						local isPlayer = Players:GetPlayerFromCharacter(v)
+						if not isPlayer then
+							activeNPCs[v] = true
+							
+							if not espHighlights[v] then
+								local highlight = Instance.new("Highlight")
+								highlight.Adornee = v
+								highlight.FillColor = Color3.fromRGB(255, 0, 0)
+								highlight.OutlineColor = Color3.fromRGB(255, 255, 255)
+								highlight.FillTransparency = 0.5
+								highlight.OutlineTransparency = 0
+								highlight.Parent = v
+								espHighlights[v] = highlight
+							end
+							
+							local textLabel = nil
+							if not espBillboards[v] then
+								local billboard = Instance.new("BillboardGui")
+								billboard.Name = "ESPTag"
+								billboard.Adornee = head
+								billboard.Size = UDim2.new(0, 200, 0, 50)
+								billboard.StudsOffset = Vector3.new(0, 3, 0)
+								billboard.AlwaysOnTop = true
+								
+								textLabel = Instance.new("TextLabel")
+								textLabel.Name = "InfoText"
+								textLabel.Size = UDim2.new(1, 0, 1, 0)
+								textLabel.BackgroundTransparency = 1
+								textLabel.TextColor3 = Color3.fromRGB(255, 255, 255)
+								textLabel.TextStrokeTransparency = 0
+								textLabel.TextSize = 14
+								textLabel.Font = Enum.Font.SourceSansBold
+								textLabel.Parent = billboard
+								
+								billboard.Parent = head
+								espBillboards[v] = billboard
+							else
+								local billboard = espBillboards[v]
+								if billboard and billboard:FindFirstChild("InfoText") then
+									textLabel = billboard.InfoText
+								end
+							end
+							
+							if textLabel then
+								local hp = math.floor(humanoid.Health)
+								local maxHp = math.floor(humanoid.MaxHealth)
+								textLabel.Text = v.Name .. "\n[HP: " .. hp .. " / " .. maxHp .. "]"
+							end
+						end
+					end
+				end
+			end
+			
+			for v, hl in pairs(espHighlights) do
+				if not activeNPCs[v] then
+					if hl then hl:Destroy() end
+					espHighlights[v] = nil
+					if espBillboards[v] then
+						espBillboards[v]:Destroy()
+						espBillboards[v] = nil
+					end
+				end
+			end
+		else
+			for k, hl in pairs(espHighlights) do
+				if hl then hl:Destroy() end
+				espHighlights[k] = nil
+			end
+			for k, bb in pairs(espBillboards) do
+				if bb then bb:Destroy() end
+				espBillboards[k] = nil
+			end
+		end
+		
+		local character = LocalPlayer.Character
+		if not character then return end
+		
+		if isNoclipEnabled then
+			for _, part in ipairs(character:GetDescendants()) do
+				if part:IsA("BasePart") then part.CanCollide = false end
+			end
+		end
+		
+		if isAutoFarmEnabled then
+			local hrp = character:FindFirstChild("HumanoidRootPart")
+			local humanoid = character:FindFirstChildOfClass("Humanoid")
+			
+			if hrp and humanoid then
+				local targetNPC = getNearestNPC()
+				if targetNPC then
+					local npcRoot = targetNPC:FindFirstChild("HumanoidRootPart") or targetNPC:FindFirstChild("Head")
+					if npcRoot then
+						for _, part in ipairs(character:GetDescendants()) do
+							if part:IsA("BasePart") then part.CanCollide = false end
+						end
+						
+						local npcPos = npcRoot.Position
+						-- ปรับความลึกเป็น -6.5 ตามต้องการ
+						hrp.CFrame = CFrame.new(npcPos.X, npcPos.Y - 6.5, npcPos.Z) * CFrame.Angles(math.rad(90), 0, 0)
+						hrp.AssemblyLinearVelocity = Vector3.new(0, 0, 0)
+						hrp.AssemblyAngularVelocity = Vector3.new(0, 0, 0)
+						humanoid.PlatformStand = true
+					end
+				else
+					humanoid.PlatformStand = false
+					if not isNoclipEnabled then
+						for _, part in ipairs(character:GetDescendants()) do
+							if part:IsA("BasePart") then part.CanCollide = true end
+						end
+					end
+				end
+			end
+		end
+	end)
+end)
